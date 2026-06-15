@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Package, Thermometer, Clock, Droplets, Plus, Palette } from 'lucide-react';
+import { Package, Thermometer, Clock, Droplets, Plus, Palette, X } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -8,16 +8,33 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
 } from 'recharts';
-import { materials, colorFormulas, dryingRecords } from '@/data/mockData';
+import { materials, colorFormulas } from '@/data/mockData';
+import { useStore } from '@/store';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
 
+const formatDateTime = () => {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
 export default function Material() {
+  const dryingRecords = useStore((s) => s.dryingRecords);
+  const startDrying = useStore((s) => s.startDrying);
+  const endDrying = useStore((s) => s.endDrying);
+
   const [activeTab, setActiveTab] = useState<'stock' | 'drying' | 'formula'>('stock');
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  const [dryingForm, setDryingForm] = useState({
+    materialId: '',
+    materialName: '',
+    temperature: 0,
+    weight: 0,
+    operator: '',
+  });
 
   const totalStock = materials.reduce((sum, m) => sum + m.stock, 0);
   const dryingCount = dryingRecords.filter((r) => r.status === 'drying').length;
@@ -26,6 +43,37 @@ export default function Material() {
     name: m.materialName,
     stock: m.stock,
   }));
+
+  const handleSelectMaterial = (materialId: string) => {
+    const mat = materials.find((m) => m.id === materialId);
+    setDryingForm({
+      ...dryingForm,
+      materialId,
+      materialName: mat?.materialName || '',
+      temperature: mat?.dryingTemperature || 0,
+    });
+  };
+
+  const handleStartDrying = () => {
+    if (!dryingForm.materialId || !dryingForm.weight || !dryingForm.operator) {
+      alert('请填写完整的烘干信息');
+      return;
+    }
+    startDrying({
+      materialId: dryingForm.materialId,
+      materialName: dryingForm.materialName,
+      startTime: formatDateTime(),
+      temperature: Number(dryingForm.temperature),
+      weight: Number(dryingForm.weight),
+      operator: dryingForm.operator,
+    });
+    setShowAddModal(false);
+    setDryingForm({ materialId: '', materialName: '', temperature: 0, weight: 0, operator: '' });
+  };
+
+  const handleEndDrying = (recordId: string) => {
+    endDrying(recordId);
+  };
 
   return (
     <div className="space-y-6">
@@ -179,7 +227,10 @@ export default function Material() {
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <h3 className="section-title mb-0">烘干记录</h3>
-              <button className="btn-primary flex items-center gap-2 text-sm">
+              <button
+                className="btn-primary flex items-center gap-2 text-sm"
+                onClick={() => setShowAddModal(true)}
+              >
                 <Plus size={16} />
                 开始烘干
               </button>
@@ -219,13 +270,23 @@ export default function Material() {
                       </td>
                       <td>
                         {record.status === 'drying' && (
-                          <button className="text-primary-600 hover:text-primary-700 text-sm font-medium">
+                          <button
+                            className="text-primary-600 hover:text-primary-700 text-sm font-medium"
+                            onClick={() => handleEndDrying(record.id)}
+                          >
                             结束烘干
                           </button>
                         )}
                       </td>
                     </tr>
                   ))}
+                  {dryingRecords.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="text-center py-8 text-industrial-400">
+                        暂无烘干记录
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -273,7 +334,7 @@ export default function Material() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {colorFormulas.map((formula, index) => (
+              {colorFormulas.map((formula) => (
                 <div
                   key={formula.id}
                   className="p-5 bg-white border border-industrial-200 rounded-xl hover:shadow-card-hover transition-all"
@@ -344,6 +405,94 @@ export default function Material() {
           </div>
         )}
       </div>
+
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+            <div className="flex items-center justify-between p-6 border-b border-industrial-200">
+              <h3 className="text-lg font-semibold">开始烘干</h3>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-industrial-400 hover:text-industrial-600 p-1"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-industrial-700 mb-1">
+                  选择原料 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="select-field"
+                  value={dryingForm.materialId}
+                  onChange={(e) => handleSelectMaterial(e.target.value)}
+                >
+                  <option value="">请选择原料</option>
+                  {materials.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.materialName} - 建议{m.dryingTemperature}°C / {m.dryingTime}h (库存:{m.stock}kg)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-industrial-700 mb-1">
+                    烘干温度(°C) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    className="input-field"
+                    value={dryingForm.temperature || ''}
+                    onChange={(e) =>
+                      setDryingForm({ ...dryingForm, temperature: Number(e.target.value) })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-industrial-700 mb-1">
+                    重量(kg) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    className="input-field"
+                    value={dryingForm.weight || ''}
+                    onChange={(e) =>
+                      setDryingForm({ ...dryingForm, weight: Number(e.target.value) })
+                    }
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-industrial-700 mb-1">
+                  操作员 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="请输入操作员姓名"
+                  value={dryingForm.operator}
+                  onChange={(e) =>
+                    setDryingForm({ ...dryingForm, operator: e.target.value })
+                  }
+                />
+              </div>
+              <div className="p-3 bg-orange-50 rounded-lg text-sm text-orange-700">
+                开始烘干后，状态将显示为「烘干中」，可在表格中手动结束
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 p-6 border-t border-industrial-200">
+              <button className="btn-secondary" onClick={() => setShowAddModal(false)}>
+                取消
+              </button>
+              <button className="btn-primary" onClick={handleStartDrying}>
+                确认开始
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Cpu,
   Thermometer,
@@ -7,6 +7,7 @@ import {
   Settings2,
   Edit3,
   Zap,
+  X,
 } from 'lucide-react';
 import {
   LineChart,
@@ -17,7 +18,8 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { machines, machineParams } from '@/data/mockData';
+import { machines } from '@/data/mockData';
+import { useStore } from '@/store';
 
 const statusMap: Record<string, { label: string; className: string; dot: string }> = {
   running: { label: '运行中', className: 'status-running', dot: 'bg-emerald-500' },
@@ -38,13 +40,84 @@ const tempTrendData = [
 ];
 
 export default function Machine() {
+  const machineParams = useStore((s) => s.machineParams);
+  const updateMachineParam = useStore((s) => s.updateMachineParam);
+
   const [selectedMachine, setSelectedMachine] = useState(machines[0]);
-  const selectedParam = machineParams.find(
-    (p) => p.machineId === selectedMachine.id
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [formData, setFormData] = useState({
+    injectionPressure: 0,
+    holdingPressure: 0,
+    holdingTime: 0,
+    moldTemperature: 0,
+    barrelTemperature: 0,
+    cycleTime: 0,
+    operator: '',
+  });
+  const [formError, setFormError] = useState('');
+
+  const selectedParam = useMemo(
+    () => machineParams.find((p) => p.machineId === selectedMachine.id),
+    [machineParams, selectedMachine.id]
   );
 
   const runningCount = machines.filter((m) => m.status === 'running').length;
   const idleCount = machines.filter((m) => m.status === 'idle').length;
+
+  const openEditModal = () => {
+    setFormData({
+      injectionPressure: selectedParam?.injectionPressure || 120,
+      holdingPressure: selectedParam?.holdingPressure || 80,
+      holdingTime: selectedParam?.holdingTime || 8,
+      moldTemperature: selectedParam?.moldTemperature || 60,
+      barrelTemperature: selectedParam?.barrelTemperature || 215,
+      cycleTime: selectedParam?.cycleTime || 35,
+      operator: selectedParam?.operator || '管理员',
+    });
+    setFormError('');
+    setShowEditModal(true);
+  };
+
+  const handleEditSubmit = () => {
+    if (!formData.operator.trim()) {
+      setFormError('请输入操作员');
+      return;
+    }
+    if (formData.injectionPressure <= 0) {
+      setFormError('注射压力必须大于0');
+      return;
+    }
+    if (formData.holdingPressure <= 0) {
+      setFormError('保压压力必须大于0');
+      return;
+    }
+    if (formData.holdingTime <= 0) {
+      setFormError('保压时间必须大于0');
+      return;
+    }
+    if (formData.moldTemperature <= 0) {
+      setFormError('模温必须大于0');
+      return;
+    }
+    if (formData.barrelTemperature <= 0) {
+      setFormError('料筒温度必须大于0');
+      return;
+    }
+    if (formData.cycleTime <= 0) {
+      setFormError('成型周期必须大于0');
+      return;
+    }
+    updateMachineParam(selectedMachine.id, {
+      injectionPressure: Number(formData.injectionPressure),
+      holdingPressure: Number(formData.holdingPressure),
+      holdingTime: Number(formData.holdingTime),
+      moldTemperature: Number(formData.moldTemperature),
+      barrelTemperature: Number(formData.barrelTemperature),
+      cycleTime: Number(formData.cycleTime),
+      operator: formData.operator,
+    });
+    setShowEditModal(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -159,7 +232,10 @@ export default function Machine() {
                       </p>
                     </div>
                   </div>
-                  <button className="btn-primary flex items-center gap-2 text-sm">
+                  <button
+                    onClick={openEditModal}
+                    className="btn-primary flex items-center gap-2 text-sm"
+                  >
                     <Edit3 size={16} />
                     调整参数
                   </button>
@@ -364,12 +440,163 @@ export default function Machine() {
               </div>
             </>
           ) : (
-            <div className="stat-card flex items-center justify-center h-96">
-              <p className="text-industrial-500">该设备暂无调机参数记录</p>
+            <div className="stat-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-industrial-800">
+                  {selectedMachine.machineNo} 调机参数
+                </h3>
+                <button
+                  onClick={openEditModal}
+                  className="btn-primary flex items-center gap-2 text-sm"
+                >
+                  <Edit3 size={16} />
+                  新增参数
+                </button>
+              </div>
+              <p className="text-industrial-500 py-8 text-center">该设备暂无调机参数记录，点击"新增参数"开始配置</p>
             </div>
           )}
         </div>
       </div>
+
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-industrial-100">
+              <h3 className="text-lg font-bold text-industrial-800">
+                {selectedParam ? '调整调机参数' : '新增调机参数'} - {selectedMachine.machineNo}
+              </h3>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="p-2 hover:bg-industrial-100 rounded-lg transition-colors"
+              >
+                <X size={20} className="text-industrial-500" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {formError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
+                  {formError}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-industrial-700 mb-1">
+                    注射压力 (MPa)
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.injectionPressure}
+                    onChange={(e) =>
+                      setFormData({ ...formData, injectionPressure: Number(e.target.value) })
+                    }
+                    className="input-field"
+                    placeholder="如 120"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-industrial-700 mb-1">
+                    保压压力 (MPa)
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.holdingPressure}
+                    onChange={(e) =>
+                      setFormData({ ...formData, holdingPressure: Number(e.target.value) })
+                    }
+                    className="input-field"
+                    placeholder="如 80"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-industrial-700 mb-1">
+                    保压时间 (s)
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.holdingTime}
+                    onChange={(e) =>
+                      setFormData({ ...formData, holdingTime: Number(e.target.value) })
+                    }
+                    className="input-field"
+                    placeholder="如 8"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-industrial-700 mb-1">
+                    模温 (°C)
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.moldTemperature}
+                    onChange={(e) =>
+                      setFormData({ ...formData, moldTemperature: Number(e.target.value) })
+                    }
+                    className="input-field"
+                    placeholder="如 60"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-industrial-700 mb-1">
+                    料筒温度 (°C)
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.barrelTemperature}
+                    onChange={(e) =>
+                      setFormData({ ...formData, barrelTemperature: Number(e.target.value) })
+                    }
+                    className="input-field"
+                    placeholder="如 215"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-industrial-700 mb-1">
+                    成型周期 (s)
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.cycleTime}
+                    onChange={(e) =>
+                      setFormData({ ...formData, cycleTime: Number(e.target.value) })
+                    }
+                    className="input-field"
+                    placeholder="如 35"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-industrial-700 mb-1">
+                  操作员
+                </label>
+                <input
+                  type="text"
+                  value={formData.operator}
+                  onChange={(e) =>
+                    setFormData({ ...formData, operator: e.target.value })
+                  }
+                  className="input-field"
+                  placeholder="请输入操作员姓名"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 p-6 border-t border-industrial-100">
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="btn-secondary flex-1"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleEditSubmit}
+                className="btn-primary flex-1"
+              >
+                确认保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

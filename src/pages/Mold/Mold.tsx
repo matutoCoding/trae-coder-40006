@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Box,
   ArrowUpDown,
@@ -8,8 +8,10 @@ import {
   Layers,
   Activity,
   History,
+  X,
 } from 'lucide-react';
-import { molds, moldRecords, machines } from '@/data/mockData';
+import { machines } from '@/data/mockData';
+import { useStore } from '@/store';
 
 const statusMap: Record<string, { label: string; className: string }> = {
   'on-machine': { label: '使用中', className: 'status-running' },
@@ -17,11 +19,99 @@ const statusMap: Record<string, { label: string; className: string }> = {
   maintenance: { label: '保养中', className: 'status-maintenance' },
 };
 
-export default function Mold() {
-  const [activeTab, setActiveTab] = useState<'list' | 'records'>('list');
+type MountFormData = {
+  machineId: string;
+  operator: string;
+  remark: string;
+};
 
-  const onMachineCount = molds.filter((m) => m.status === 'on-machine').length;
-  const maintenanceCount = molds.filter((m) => m.status === 'maintenance').length;
+type DismountFormData = {
+  operator: string;
+  remark: string;
+};
+
+export default function Mold() {
+  const molds = useStore((s) => s.molds);
+  const moldRecords = useStore((s) => s.moldRecords);
+  const mountMold = useStore((s) => s.mountMold);
+  const dismountMold = useStore((s) => s.dismountMold);
+
+  const [activeTab, setActiveTab] = useState<'list' | 'records'>('list');
+  const [showMountModal, setShowMountModal] = useState(false);
+  const [showDismountModal, setShowDismountModal] = useState(false);
+  const [selectedMoldId, setSelectedMoldId] = useState<string | null>(null);
+
+  const [mountForm, setMountForm] = useState<MountFormData>({
+    machineId: '',
+    operator: '',
+    remark: '',
+  });
+  const [dismountForm, setDismountForm] = useState<DismountFormData>({
+    operator: '',
+    remark: '',
+  });
+  const [formError, setFormError] = useState('');
+
+  const onMachineCount = useMemo(
+    () => molds.filter((m) => m.status === 'on-machine').length,
+    [molds]
+  );
+  const maintenanceCount = useMemo(
+    () => molds.filter((m) => m.status === 'maintenance').length,
+    [molds]
+  );
+
+  const availableMachines = useMemo(
+    () => machines.filter((m) => m.status === 'running' || m.status === 'idle'),
+    []
+  );
+
+  const openMountModal = (moldId: string) => {
+    setSelectedMoldId(moldId);
+    setMountForm({ machineId: '', operator: '', remark: '' });
+    setFormError('');
+    setShowMountModal(true);
+  };
+
+  const openDismountModal = (moldId: string) => {
+    setSelectedMoldId(moldId);
+    setDismountForm({ operator: '', remark: '' });
+    setFormError('');
+    setShowDismountModal(true);
+  };
+
+  const handleMountSubmit = () => {
+    if (!mountForm.machineId) {
+      setFormError('请选择注塑机');
+      return;
+    }
+    if (!mountForm.operator.trim()) {
+      setFormError('请输入操作员');
+      return;
+    }
+    if (!selectedMoldId) return;
+    mountMold(
+      selectedMoldId,
+      mountForm.machineId,
+      mountForm.operator,
+      mountForm.remark || undefined
+    );
+    setShowMountModal(false);
+  };
+
+  const handleDismountSubmit = () => {
+    if (!dismountForm.operator.trim()) {
+      setFormError('请输入操作员');
+      return;
+    }
+    if (!selectedMoldId) return;
+    dismountMold(
+      selectedMoldId,
+      dismountForm.operator,
+      dismountForm.remark || undefined
+    );
+    setShowDismountModal(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -192,12 +282,18 @@ export default function Mold() {
 
                     <div className="flex gap-2 mt-4">
                       {mold.status === 'off-machine' && (
-                        <button className="flex-1 py-2 text-sm text-primary-600 border border-primary-200 rounded-lg hover:bg-primary-50 transition-colors">
+                        <button
+                          onClick={() => openMountModal(mold.id)}
+                          className="flex-1 py-2 text-sm text-primary-600 border border-primary-200 rounded-lg hover:bg-primary-50 transition-colors"
+                        >
                           上机
                         </button>
                       )}
                       {mold.status === 'on-machine' && (
-                        <button className="flex-1 py-2 text-sm text-amber-600 border border-amber-200 rounded-lg hover:bg-amber-50 transition-colors">
+                        <button
+                          onClick={() => openDismountModal(mold.id)}
+                          className="flex-1 py-2 text-sm text-amber-600 border border-amber-200 rounded-lg hover:bg-amber-50 transition-colors"
+                        >
                           下机
                         </button>
                       )}
@@ -292,6 +388,158 @@ export default function Mold() {
           </div>
         )}
       </div>
+
+      {showMountModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between p-6 border-b border-industrial-100">
+              <h3 className="text-lg font-bold text-industrial-800">模具上机</h3>
+              <button
+                onClick={() => setShowMountModal(false)}
+                className="p-2 hover:bg-industrial-100 rounded-lg transition-colors"
+              >
+                <X size={20} className="text-industrial-500" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {formError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
+                  {formError}
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-industrial-700 mb-1">
+                  选择注塑机 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={mountForm.machineId}
+                  onChange={(e) =>
+                    setMountForm({ ...mountForm, machineId: e.target.value })
+                  }
+                  className="select-field w-full"
+                >
+                  <option value="">请选择可用注塑机</option>
+                  {availableMachines.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.machineNo} - {m.machineType} ({m.tonnage}T)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-industrial-700 mb-1">
+                  操作员 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={mountForm.operator}
+                  onChange={(e) =>
+                    setMountForm({ ...mountForm, operator: e.target.value })
+                  }
+                  className="input-field w-full"
+                  placeholder="请输入操作员姓名"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-industrial-700 mb-1">
+                  备注
+                </label>
+                <textarea
+                  value={mountForm.remark}
+                  onChange={(e) =>
+                    setMountForm({ ...mountForm, remark: e.target.value })
+                  }
+                  rows={3}
+                  className="input-field w-full resize-none"
+                  placeholder="选填，如生产订单号等信息"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 p-6 border-t border-industrial-100">
+              <button
+                onClick={() => setShowMountModal(false)}
+                className="btn-secondary flex-1"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleMountSubmit}
+                className="btn-primary flex-1"
+              >
+                确认上机
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDismountModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between p-6 border-b border-industrial-100">
+              <h3 className="text-lg font-bold text-industrial-800">模具下机</h3>
+              <button
+                onClick={() => setShowDismountModal(false)}
+                className="p-2 hover:bg-industrial-100 rounded-lg transition-colors"
+              >
+                <X size={20} className="text-industrial-500" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {formError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
+                  {formError}
+                </div>
+              )}
+              <div className="p-3 bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg">
+                下机后将清空当前机台信息
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-industrial-700 mb-1">
+                  操作员 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={dismountForm.operator}
+                  onChange={(e) =>
+                    setDismountForm({ ...dismountForm, operator: e.target.value })
+                  }
+                  className="input-field w-full"
+                  placeholder="请输入操作员姓名"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-industrial-700 mb-1">
+                  备注
+                </label>
+                <textarea
+                  value={dismountForm.remark}
+                  onChange={(e) =>
+                    setDismountForm({ ...dismountForm, remark: e.target.value })
+                  }
+                  rows={3}
+                  className="input-field w-full resize-none"
+                  placeholder="选填，如下机原因、模次信息等"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 p-6 border-t border-industrial-100">
+              <button
+                onClick={() => setShowDismountModal(false)}
+                className="btn-secondary flex-1"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleDismountSubmit}
+                className="btn-primary flex-1"
+              >
+                确认下机
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
